@@ -1,10 +1,9 @@
-"""Serves the web page and hands the browser a token to join a LiveKit room.
 
-Run: python server.py, then open http://localhost:8080
-"""
-
+import asyncio
 import os
+import sys
 import uuid
+
 from datetime import timedelta
 from pathlib import Path
 
@@ -12,41 +11,122 @@ from aiohttp import web
 from dotenv import load_dotenv
 from livekit import api
 
-load_dotenv(dotenv_path=Path(__file__).parent / ".env")
-url = os.getenv("LIVEKIT_URL")
-key = os.getenv("LIVEKIT_API_KEY")
-secret = os.getenv("LIVEKIT_API_SECRET")
+
+BASE_DIR = Path(__file__).resolve().parent
+
+load_dotenv(BASE_DIR / ".env")
+
+AGENT_NAME = "avatar-demo"
 
 
-async def token(request: web.Request) -> web.Response:
-    # Demo only: no auth. Put this behind your app's login in anything real.
-    room = f"avatar-demo-{uuid.uuid4().hex[:8]}"  # fresh room per visit
+# Start the LiveKit agent as a child process
+async def start_agent(app: web.Application):
+
+    agent_file = BASE_DIR / "agent.py"
+
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(agent_file),
+        "start",
+        cwd=str(BASE_DIR),
+        env=os.environ.copy()
+    )
+
+    app["agent_process"] = process
+
+    print("LiveKit agent process started.")
+
+
+# Stop the agent when the web server shuts down
+async def stop_agent(app: web.Application):
+
+    process = app.get("agent_process")
+
+    if process and process.returncode is None:
+
+        print("Stopping LiveKit agent...")
+
+        process.terminate()
+
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=10
+            )
+
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+
+        print("LiveKit agent stopped.")
+
+
+# Generate LiveKit access token
+async def token(request: web.Request):
+
+    room = f"avatar-demo-{uuid.uuid4().hex[:8]}"
+
     jwt = (
-        api.AccessToken()  # reads LIVEKIT_API_KEY / LIVEKIT_API_SECRET
+        api.AccessToken()
         .with_identity(f"user-{uuid.uuid4().hex[:8]}")
         .with_ttl(timedelta(minutes=15))
-        .with_grants(api.VideoGrants(room_join=True, room=room))
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room
+            )
+        )
         .with_room_config(
             api.RoomConfiguration(
-                sync_streams=True,  # keeps the avatar's lips in sync with its audio
-                agents=[api.RoomAgentDispatch(agent_name=AGENT_NAME)],  # sends our agent in
+                sync_streams=True,
+                agents=[
+                    api.RoomAgentDispatch(
+                        agent_name=AGENT_NAME
+                    )
+                ]
             )
         )
         .to_jwt()
     )
-    return web.json_response({"url": os.environ["LIVEKIT_URL"], "token": jwt})
+
+    return web.json_response({
+        "url": os.environ["LIVEKIT_URL"],
+        "token": jwt
+    })
 
 
-async def index(request: web.Request) -> web.FileResponse:
+# Serve frontend
+async def index(request: web.Request):
+
     return web.FileResponse(
-        Path(__file__).parent / "index.html", headers={"Cache-Control": "no-store"}
+        BASE_DIR / "index.html",
+        headers={"Cache-Control": "no-store"}
     )
 
 
+# Create application
 app = web.Application()
+
+# Start agent when application starts
+app.on_startup.append(start_agent)
+
+# Stop agent when application shuts down
+app.on_cleanup.append(stop_agent)
+
+# Routes
 app.router.add_get("/", index)
 app.router.add_get("/token", token)
-app.router.add_static("/static", Path(__file__).parent / "static")  # site.css + site.js
+
+app.router.add_static(
+    "/static",
+    BASE_DIR / "static"
+)
+
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=8080)
+
+    web.run_app(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "10000"))
+    )
