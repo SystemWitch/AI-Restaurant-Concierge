@@ -186,6 +186,7 @@ def create_app():
 
     app.router.add_get("/", index)
     app.router.add_get("/token", token)
+    app.router.add_get("/health", health)
 
     app.router.add_static(
         "/static",
