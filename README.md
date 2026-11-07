@@ -17,7 +17,7 @@ Built with **Python, LiveKit Agents, OpenRouter, Cartesia, Silero VAD, and Synth
 
 ### Tech Stack
 
-- **dBackend:** Python, Aiohttp
+- **Backend:** Python, Aiohttp
 - **AI Agent:** LiveKit Agents, OpenRouter
 - **Speech-to-Text:** Cartesia
 - **Text-to-Speech:** Cartesia
