@@ -213,10 +213,16 @@ async def entrypoint(ctx: JobContext):
 if __name__ == "__main__":
 
     cli.run_app(
-        WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            prewarm_fnc=prewarm,
-            agent_name=AGENT_NAME,
-            port=8081,
-        )
+    WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm,
+        agent_name=AGENT_NAME,
+        port=8081,
+
+        # Don't start idle job processes during worker startup.
+        num_idle_processes=0,
+
+        # Give a job process more time to initialize when needed.
+        initialize_process_timeout=60.0,
     )
+)
