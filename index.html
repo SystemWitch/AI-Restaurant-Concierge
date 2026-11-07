@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="D.R. Restaurant — a twenty-two seat tasting-menu restaurant. A real-time AI avatar demo." />
+  <title>D.R. Restaurant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/site.css" />
+</head>
+<body>
+  <!-- The restaurant website. All of it is built by static/site.js, which knows
+       nothing about avatars: it just exposes one SITE method per tool. -->
+  <div id="site"></div>
+
+  <!-- The avatar -->
+  <div id="widget">
+    <div id="widget-head">
+      <div class="widget-id">
+        <span class="kicker">Ma&icirc;tre d'</span>
+        <span class="widget-title">Ava</span>
+      </div>
+      <button id="widget-toggle" type="button" aria-label="Collapse avatar" aria-expanded="true">&minus;</button>
+    </div>
+    <video id="video" autoplay playsinline></video>
+    <div id="bar">
+      <span id="state">
+        <i></i><span id="label">Talk to Ava</span>
+        <span id="mic" title="Lights up when LiveKit is receiving your microphone"></span>
+      </span>
+      <button id="start">Start</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <script src="/static/site.js"></script>
+
+  <script>
+    // Everything the browser needs for the avatar is in this one block.
+    const { Room, RoomEvent } = LivekitClient;
+    const video = document.getElementById('video');
+    const label = document.getElementById('label');
+    const mic = document.getElementById('mic');
+    const btn = document.getElementById('start');
+    let room = null;
+
+    // The concierge card folds away on narrower screens so it never sits on
+    // top of the menu. Open it with the + button whenever you want to talk.
+    const widget = document.getElementById('widget');
+    const widgetToggle = document.getElementById('widget-toggle');
+    function setWidget(open) {
+      widget.classList.toggle('collapsed', !open);
+      widgetToggle.textContent = open ? '\u2212' : '+';
+      widgetToggle.setAttribute('aria-expanded', String(open));
+      widgetToggle.setAttribute('aria-label', open ? 'Collapse avatar' : 'Expand avatar');
+    }
+    widgetToggle.onclick = () => setWidget(widget.classList.contains('collapsed'));
+    setWidget(window.innerWidth >= 1820);
+
+    btn.onclick = async () => {
+      if (room) return leave();   // already in the call, so this click means stop
+      btn.textContent = 'Stop';
+      label.textContent = 'Connecting…';
+
+      try {
+        // 1. Get a token from our server and join the room
+        const response = await fetch('/token');
+
+        if (!response.ok) {
+            throw new Error(`Token endpoint failed: ${response.status}`);
+        }
+
+        const { url, token } = await response.json();
+
+        if (!url || !token) {
+            throw new Error("Missing LiveKit URL or access token");
+        }
+        room = new Room();
+
+        // 2. The avatar joins as a participant. Play its audio + video.
+        room.on(RoomEvent.TrackSubscribed, (track) => track.attach(video));
+
+        // 3. Show what the agent is doing: listening, thinking or speaking
+        room.on(RoomEvent.ParticipantAttributesChanged, (changed) => {
+          if (changed['lk.agent.state']) label.textContent = changed['lk.agent.state'];
+        });
+
+        // 4. Every tool call arrives here. SITE has one method per tool.
+        room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+          if (topic !== 'ui') return;
+          const { action, ...args } = JSON.parse(new TextDecoder().decode(payload));
+          SITE[action]?.(args);
+        });
+
+        // The dot lights up when LiveKit says it can hear you.
+        room.on(RoomEvent.ActiveSpeakersChanged, (speakers) =>
+          mic.classList.toggle('on', speakers.some((s) => s.isLocal)));
+        room.on(RoomEvent.Disconnected, leave);
+
+        await room.connect(url, token);
+        await room.localParticipant.setMicrophoneEnabled(true);
+        label.textContent = 'Waiting for Ava…';
+      } catch (err) {
+        leave();
+        label.textContent = err.message;   // mic denied, bad token, no LiveKit
+      }
+    };
+
+    function leave() {
+      room?.disconnect();
+      room = null;
+      mic.classList.remove('on');
+      btn.textContent = 'Start';
+      label.textContent = 'Talk to Ava';
+    }
+  </script>
+</body>
+</html>
