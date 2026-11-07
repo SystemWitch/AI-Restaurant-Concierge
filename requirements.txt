@@ -2,6 +2,7 @@ aiohttp
 python-dotenv
 httpx
 livekit-agents
+livekit-api
 livekit-plugins-openai
 livekit-plugins-silero
 livekit-plugins-synthesia
