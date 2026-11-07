@@ -193,7 +193,12 @@ def create_app():
     )
 
     return app
-
+    
+async def health(request):
+    return web.json_response({
+        "status": "ok",
+        "service": "restaurant-ai-agent"
+    })
 
 if __name__ == "__main__":
 
